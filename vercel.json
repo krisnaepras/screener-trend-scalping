@@ -6,15 +6,14 @@
       "source": "/api/binance/(.*)",
       "destination": "/api/binance"
     }
-  ]
-],
-"regions": [
-  "sin1"
-],
-"functions": {
-  "api/binance.ts": {
-    "memory": 1024,
-    "maxDuration": 10
+  ],
+  "regions": [
+    "sin1"
+  ],
+  "functions": {
+    "api/binance.ts": {
+      "memory": 1024,
+      "maxDuration": 10
+    }
   }
-}
 }
