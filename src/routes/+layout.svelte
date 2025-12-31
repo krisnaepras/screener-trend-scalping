@@ -8,22 +8,38 @@
 	});
 </script>
 
-<div class="min-h-screen bg-gray-100 font-sans text-gray-900">
-	<header class="bg-white shadow-sm border-b">
-		<div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
-			<div class="flex items-center gap-2">
+<div class="min-h-screen bg-surface-950 font-sans text-slate-200 selection:bg-brand-500/30">
+	<!-- Glassmorphism Header -->
+	<header
+		class="fixed top-0 inset-x-0 z-50 h-16 border-b border-white/5 bg-surface-900/70 backdrop-blur-md flex items-center"
+	>
+		<div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 w-full flex items-center justify-between">
+			<div class="flex items-center gap-3">
+				<!-- Animated Logo/Icon wrapper could go here -->
+				<div
+					class="h-8 w-8 rounded-lg bg-gradient-to-br from-brand-500 to-indigo-600 flex items-center justify-center shadow-lg shadow-brand-500/20"
+				>
+					<span class="text-white font-bold text-lg">S</span>
+				</div>
 				<a
 					href="/"
-					class="text-xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-blue-600 to-indigo-600"
+					class="text-xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-white via-slate-200 to-slate-400 tracking-tight"
 				>
 					Scalping Hunter
 				</a>
 			</div>
-			<div class="text-xs text-gray-500">Educational Tool. Not Financial Advice.</div>
+			<div class="flex items-center gap-4">
+				<div
+					class="hidden sm:block text-xs font-mono text-slate-500 bg-surface-800/50 px-3 py-1 rounded-full border border-white/5"
+				>
+					LIVE MARKET DATA
+				</div>
+			</div>
 		</div>
 	</header>
 
-	<main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+	<!-- Main Content with top padding for fixed header -->
+	<main class="pt-20 pb-8 px-4 sm:px-6 lg:px-8 max-w-[1600px] mx-auto">
 		<slot />
 	</main>
 </div>

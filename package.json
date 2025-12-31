@@ -38,6 +38,10 @@
 		"vite": "^7.2.6"
 	},
 	"dependencies": {
+		"@capacitor/android": "^8.0.0",
+		"@capacitor/cli": "^8.0.0",
+		"@capacitor/core": "^8.0.0",
+		"@sveltejs/adapter-static": "^3.0.10",
 		"elysia": "^1.4.19",
 		"lightweight-charts": "^5.1.0"
 	}

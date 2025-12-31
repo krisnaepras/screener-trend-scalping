@@ -5,6 +5,7 @@ import { calculateRSI, getLastRSI } from '../indicators/rsi';
 import { getLastEMA } from '../indicators/ema';
 import { getLastBB } from '../indicators/bb';
 import { calculateScores } from '../scoring';
+import { Capacitor } from '@capacitor/core';
 
 function createMarketStore() {
     const { subscribe, update, set } = writable(new Map<string, MarketState>());
@@ -139,7 +140,15 @@ function createMarketStore() {
     const fetchHistory = async (symbol: string, interval: '1m' | '5m' | '15m') => {
         try {
             // Use the proxy
-            const res = await fetch(`/api/binance/klines?symbol=${symbol}&interval=${interval}&limit=100`);
+            let url = `/api/binance/klines?symbol=${symbol}&interval=${interval}&limit=100`;
+
+            // If Native (Android/iOS), fetch directly from Binance
+            // Requires CapacitorHttp plugin to be enabled to bypass CORS or use native fetch
+            if (Capacitor.isNativePlatform()) {
+                url = `https://screener-trend-scalping.vercel.app/api/binance/klines?symbol=${symbol}&interval=${interval}&limit=100`;
+            }
+
+            const res = await fetch(url);
             const data = await res.json();
 
             if (Array.isArray(data)) {
