@@ -3,10 +3,13 @@ import { scoreMode2 } from './mode2';
 import { scoreMode3 } from './mode3';
 import type { MarketState } from '../types';
 
-export function calculateScores(state: MarketState): MarketState {
-    const s1 = scoreMode1(state);
-    const s2 = scoreMode2(state);
-    const s3 = scoreMode3(state);
+import { getScoringConfig } from './config';
+
+export function calculateScores(state: MarketState, mode: 'scalping' | 'intraday' = 'scalping'): MarketState {
+    const config = getScoringConfig(mode);
+    const s1 = scoreMode1(state, config.MODE1);
+    const s2 = scoreMode2(state, config.MODE2);
+    const s3 = scoreMode3(state, config.MODE3);
 
     // Determine Bias based on highest score or specific logic
     let bias: MarketState['bias'] = 'NEUTRAL';

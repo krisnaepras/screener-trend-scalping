@@ -2,6 +2,7 @@
 	import '../app.css';
 	import { onMount } from 'svelte';
 	import { market } from '$lib/stores/market';
+	import { hunter } from '$lib/stores/hunter';
 
 	onMount(() => {
 		market.init();
@@ -25,8 +26,24 @@
 					href="/"
 					class="text-xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-white via-slate-200 to-slate-400 tracking-tight"
 				>
-					Scalping Hunter
+					{#if $hunter === 'intraday'}
+						Intraday Hunter
+					{:else}
+						Scalping Hunter
+					{/if}
 				</a>
+				<div class="ml-4">
+					<button
+						on:click={() => hunter.toggle()}
+						class="px-3 py-1 rounded-full text-xs font-bold border transition-all duration-300
+                        {$hunter === 'intraday'
+							? 'bg-blue-600 border-blue-400 text-white'
+							: 'bg-brand-600 border-brand-400 text-white'}
+                        "
+					>
+						{$hunter === 'intraday' ? '1H / 15m' : '15m / 1m'}
+					</button>
+				</div>
 			</div>
 			<div class="flex items-center gap-4">
 				<div

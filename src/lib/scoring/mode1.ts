@@ -2,20 +2,21 @@ import { normalize, weightedSum, clamp } from './utils';
 import { SCORING_CONFIG } from './config';
 import type { MarketState } from '../types';
 
-export function scoreMode1(state: MarketState): number {
-    const config = SCORING_CONFIG.MODE1;
+
+export function scoreMode1(state: MarketState, config: any): number {
 
     // 1. Pump Strength (Last 5m candle change or recent trend)
     // We need klines. Let's assume klines5m are up to date.
-    const klines = state.klines5m;
+    // 1. Pump Strength
+    const klines = config.IS_INTRADAY ? state.klines1h : state.klines5m;
     if (!klines || klines.length < 2) return 0;
 
     const lastClose = klines[klines.length - 1].c;
     const prevClose = klines[klines.length - 2].c;
-    const pump5m = ((lastClose - prevClose) / prevClose) * 100;
+    const pumpVal = ((lastClose - prevClose) / prevClose) * 100;
 
     // Normalize pump: 0 to Threshold*2
-    const pumpScore = normalize(pump5m, 0, config.PUMP_5M_THRESHOLD * 2);
+    const pumpScore = normalize(pumpVal, 0, config.PUMP_5M_THRESHOLD * 2);
 
     // 2. Exhaustion Context (RSI Overbought)
     // Mode 1 focuses on Impulse + Reversal (Short)

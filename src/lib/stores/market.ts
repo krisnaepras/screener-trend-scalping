@@ -1,4 +1,5 @@
-import { writable } from 'svelte/store';
+import { writable, get } from 'svelte/store';
+import { hunter } from './hunter';
 import type { MarketState, Ticker, Kline } from '../types';
 import { BinanceWS } from '../binance/ws';
 import { calculateRSI, getLastRSI } from '../indicators/rsi';
@@ -13,6 +14,15 @@ function createMarketStore() {
     // Local state to avoid Svelte overhead on every sub-update
     const stateMap = new Map<string, MarketState>();
     let dirty = false;
+
+    // React to mode changes
+    hunter.subscribe(mode => {
+        // Trigger recalc for all symbols with new mode
+        stateMap.forEach(state => {
+            recalcIndicators(state);
+        });
+        dirty = true;
+    });
 
     // Buffer updates loop to throttle UI
     if (typeof setInterval !== 'undefined') {
@@ -34,10 +44,20 @@ function createMarketStore() {
 
         state.rsi5m = getLastRSI(closes, 14);
 
-        // 1m Indicators
         const closes1m = state.klines1m.map(k => k.c);
         const vols1m = state.klines1m.map(k => k.v);
+        const closes15m = state.klines15m.map(k => k.c);
+        const closes1h = state.klines1h.map(k => k.c);
 
+        // Intraday RSI
+        if (closes15m.length >= 20) {
+            state.rsi15m = getLastRSI(closes15m, 14);
+        }
+        if (closes1h.length >= 20) {
+            state.rsi1h = getLastRSI(closes1h, 14);
+        }
+
+        // 1m Indicators
         if (closes1m.length >= 21) {
             state.rsi1m = getLastRSI(closes1m, 14);
             state.ema21_1m = getLastEMA(closes1m, 21);
@@ -54,16 +74,27 @@ function createMarketStore() {
         }
 
         // 15m Indicators (EMA 50)
-        const closes15m = state.klines15m.map(k => k.c);
         if (closes15m.length >= 50) {
             state.ema50_15m = getLastEMA(closes15m, 50);
+            state.ema21_15m = getLastEMA(closes15m, 21);
         }
 
-        const bb = getLastBB(closes, 20, 2);
+        // 1h Indicators
+        if (closes1h.length >= 50) {
+            state.ema50_1h = getLastEMA(closes1h, 50);
+        }
+
+        const currentMode = get(hunter);
+        let bb;
+        if (currentMode === 'intraday' && closes1h.length >= 20) {
+            bb = getLastBB(closes1h, 20, 2);
+        } else {
+            bb = getLastBB(closes, 20, 2);
+        }
         state.bbWidth = bb?.width;
 
         // Recalculate Scores
-        const scoredState = calculateScores(state);
+        const scoredState = calculateScores(state, currentMode);
         state.scoreMode1 = scoredState.scoreMode1;
         state.scoreMode2 = scoredState.scoreMode2;
         state.scoreMode3 = scoredState.scoreMode3;
@@ -71,7 +102,7 @@ function createMarketStore() {
         state.note = scoredState.note;
     };
 
-    const fetchHistory = async (symbol: string, interval: '1m' | '5m' | '15m') => {
+    const fetchHistory = async (symbol: string, interval: '1m' | '5m' | '15m' | '1h') => {
         try {
             // Use the proxy
             let url = `/api/binance/klines?symbol=${symbol}&interval=${interval}&limit=100`;
@@ -105,8 +136,14 @@ function createMarketStore() {
                         recalcIndicators(existing);
                     }
                 } else if (interval === '15m') {
+                } else if (interval === '15m') {
                     if (existing.klines15m.length < 10) {
                         existing.klines15m = klines;
+                        recalcIndicators(existing);
+                    }
+                } else if (interval === '1h') {
+                    if (existing.klines1h.length < 10) {
+                        existing.klines1h = klines;
                         recalcIndicators(existing);
                     }
                 } else {
@@ -139,11 +176,13 @@ function createMarketStore() {
             ws?.subscribeKline(item.symbol, '5m');
             ws?.subscribeKline(item.symbol, '1m');
             ws?.subscribeKline(item.symbol, '15m');
+            ws?.subscribeKline(item.symbol, '1h');
 
             // Backfill if empty
             if (item.klines5m.length === 0) fetchHistory(item.symbol, '5m');
             if (item.klines1m.length === 0) fetchHistory(item.symbol, '1m');
             if (item.klines15m.length === 0) fetchHistory(item.symbol, '15m');
+            if (item.klines1h.length === 0) fetchHistory(item.symbol, '1h');
         });
     };
 
@@ -170,7 +209,8 @@ function createMarketStore() {
                             bias: 'NEUTRAL',
                             klines5m: [],
                             klines1m: [],
-                            klines15m: []
+                            klines15m: [],
+                            klines1h: []
                         });
                         dirty = true;
                     } else {
@@ -233,26 +273,36 @@ function createMarketStore() {
                         existing.klines15m[existing.klines15m.length - 1] = kline;
                         if (k.x) updated = true;
                     }
-                }
-
-                if (updated) {
-                    recalcIndicators(existing);
-                    dirty = true;
-                }
-            },
-            (markPrices) => {
-                // Handle Mark Price (Funding Rate)
-                markPrices.forEach((mp: any) => {
-                    const s = mp.s;
-                    const funding = parseFloat(mp.r);
-                    const existing = stateMap.get(s);
-                    if (existing) {
-                        existing.funding = funding;
-                        // dirty = true; // Optional: update UI on funding change?
+                } else if (interval === '1h') {
+                    const lastKline = existing.klines1h[existing.klines1h.length - 1];
+                    if (!lastKline || kline.t > lastKline.t) {
+                        existing.klines1h.push(kline);
+                        if (existing.klines1h.length > 300) existing.klines1h.shift();
+                        updated = true;
+                    } else {
+                        existing.klines1h[existing.klines1h.length - 1] = kline;
+                        if (k.x) updated = true;
                     }
-                });
-            }
-        );
+
+
+                    if (updated) {
+                        recalcIndicators(existing);
+                        dirty = true;
+                    }
+                },
+                (markPrices) => {
+                    // Handle Mark Price (Funding Rate)
+                    markPrices.forEach((mp: any) => {
+                        const s = mp.s;
+                        const funding = parseFloat(mp.r);
+                        const existing = stateMap.get(s);
+                        if (existing) {
+                            existing.funding = funding;
+                            // dirty = true; // Optional: update UI on funding change?
+                        }
+                    });
+                }
+            );
 
         ws.connect();
 

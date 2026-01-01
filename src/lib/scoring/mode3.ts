@@ -2,8 +2,8 @@ import { normalize, weightedSum } from './utils';
 import { SCORING_CONFIG } from './config';
 import type { MarketState } from '../types';
 
-export function scoreMode3(state: MarketState): number {
-    const config = SCORING_CONFIG.MODE3;
+
+export function scoreMode3(state: MarketState, config: any): number {
 
     // 1. Squeeze Check (BB Width)
     const bbWidth = state.bbWidth || 1;
@@ -11,12 +11,14 @@ export function scoreMode3(state: MarketState): number {
     const squeezeScore = 1 - normalize(bbWidth, 0, 0.10); // 10% width is loose
 
     // 2. Breakout Impulse (Recent candle vs Range)
-    const klines = state.klines5m;
+    // 2. Breakout Impulse (Recent candle vs Range)
+    const klines = config.IS_INTRADAY ? state.klines1h : state.klines5m;
     if (!klines || klines.length < 2) return 0;
 
     const lastKline = klines[klines.length - 1];
     const bodySize = Math.abs(lastKline.c - lastKline.o); // absolute price movement
-    const atr = state.atr5m || (lastKline.c * 0.01); // Fallback to 1% price
+    const atr = (config.IS_INTRADAY ? state.atr5m : state.atr5m) || (lastKline.c * 0.01); // TODO: Add ATR 1H? For now use ATR 5m or fallback
+    // Actually, fallback to % of price is safer if ATR missing.
 
     // Breakout Score: How big is the body relative to ATR?
     // If Body > 1.5x ATR, it's a strong impulse
