@@ -136,7 +136,6 @@ function createMarketStore() {
                         recalcIndicators(existing);
                     }
                 } else if (interval === '15m') {
-                } else if (interval === '15m') {
                     if (existing.klines15m.length < 10) {
                         existing.klines15m = klines;
                         recalcIndicators(existing);
@@ -189,120 +188,112 @@ function createMarketStore() {
     // --- Init ---
 
     const init = () => {
-        ws = new BinanceWS(
-            (tickers) => {
-                tickers.forEach(t => {
-                    const s = t.s;
-                    if (!s.endsWith('USDT')) return; // Filter USDT only
-
-                    if (!stateMap.has(s)) {
-                        // Initialize new symbol
-                        stateMap.set(s, {
-                            symbol: s,
-                            price: parseFloat(t.c),
-                            change24h: parseFloat(t.P),
-                            volume: parseFloat(t.q),
-                            scoreMode1: 0,
-                            scoreMode2: 0,
-                            scoreMode3: 0,
-
-                            bias: 'NEUTRAL',
-                            klines5m: [],
-                            klines1m: [],
-                            klines15m: [],
-                            klines1h: []
-                        });
-                        dirty = true;
-                    } else {
-                        // Update existing
-                        const existing = stateMap.get(s)!;
-                        existing.price = parseFloat(t.c);
-                        existing.change24h = parseFloat(t.P);
-                        existing.volume = parseFloat(t.q); // Volume accumulates 24h
-                        // dirty = true; // Optimization: Don't trigger rerender on just price tick unless needed
-                        // Actually we need to update price on UI. But maybe 500ms throttle covers it.
-                        dirty = true;
-                    }
-                });
-
-                // Periodic Top N check to subscribe to klines
-                checkAndSubscribeTopCandidates(stateMap);
-            },
-            (symbol, k, interval) => {
-                const existing = stateMap.get(symbol);
-                if (!existing) return;
-
-                const kline: Kline = {
-                    t: k.t,
-                    o: parseFloat(k.o),
-                    h: parseFloat(k.h),
-                    l: parseFloat(k.l),
-                    c: parseFloat(k.c),
-                    v: parseFloat(k.v)
-                };
-
-                let updated = false;
-
-                if (interval === '1m') {
-                    const lastKline = existing.klines1m[existing.klines1m.length - 1];
-                    if (!lastKline || kline.t > lastKline.t) {
-                        existing.klines1m.push(kline);
-                        if (existing.klines1m.length > 300) existing.klines1m.shift();
-                        updated = true;
-                    } else {
-                        existing.klines1m[existing.klines1m.length - 1] = kline;
-                        if (k.x) updated = true;
-                    }
-                } else if (interval === '5m') {
-                    const lastKline = existing.klines5m[existing.klines5m.length - 1];
-                    if (!lastKline || kline.t > lastKline.t) {
-                        existing.klines5m.push(kline);
-                        if (existing.klines5m.length > 300) existing.klines5m.shift();
-                        updated = true;
-                    } else {
-                        existing.klines5m[existing.klines5m.length - 1] = kline;
-                        if (k.x) updated = true;
-                    }
-                } else if (interval === '15m') {
-                    const lastKline = existing.klines15m[existing.klines15m.length - 1];
-                    if (!lastKline || kline.t > lastKline.t) {
-                        existing.klines15m.push(kline);
-                        if (existing.klines15m.length > 300) existing.klines15m.shift();
-                        updated = true;
-                    } else {
-                        existing.klines15m[existing.klines15m.length - 1] = kline;
-                        if (k.x) updated = true;
-                    }
-                } else if (interval === '1h') {
-                    const lastKline = existing.klines1h[existing.klines1h.length - 1];
-                    if (!lastKline || kline.t > lastKline.t) {
-                        existing.klines1h.push(kline);
-                        if (existing.klines1h.length > 300) existing.klines1h.shift();
-                        updated = true;
-                    } else {
-                        existing.klines1h[existing.klines1h.length - 1] = kline;
-                        if (k.x) updated = true;
-                    }
-
-
-                    if (updated) {
-                        recalcIndicators(existing);
-                        dirty = true;
-                    }
-                },
-                (markPrices) => {
-                    // Handle Mark Price (Funding Rate)
-                    markPrices.forEach((mp: any) => {
-                        const s = mp.s;
-                        const funding = parseFloat(mp.r);
-                        const existing = stateMap.get(s);
-                        if (existing) {
-                            existing.funding = funding;
-                            // dirty = true; // Optional: update UI on funding change?
-                        }
+        const handleTicker = (tickers: Ticker[]) => {
+            tickers.forEach(t => {
+                const s = t.s;
+                if (!s.endsWith('USDT')) return; // Filter USDT only
+                if (!stateMap.has(s)) {
+                    // Initialize new symbol
+                    stateMap.set(s, {
+                        symbol: s,
+                        price: parseFloat(t.c),
+                        change24h: parseFloat(t.P),
+                        volume: parseFloat(t.q),
+                        scoreMode1: 0,
+                        scoreMode2: 0,
+                        scoreMode3: 0,
+                        bias: 'NEUTRAL',
+                        klines5m: [],
+                        klines1m: [],
+                        klines15m: [],
+                        klines1h: []
                     });
+                    dirty = true;
+                } else {
+                    // Update existing
+                    const existing = stateMap.get(s)!;
+                    existing.price = parseFloat(t.c);
+                    existing.change24h = parseFloat(t.P);
+                    existing.volume = parseFloat(t.q); // Volume accumulates 24h
+                    dirty = true;
                 }
-            );
+            });
+            // Periodic Top N check to subscribe to klines
+            checkAndSubscribeTopCandidates(stateMap);
+        };
+
+        const handleKline = (symbol: string, k: any, interval: string) => {
+            const existing = stateMap.get(symbol);
+            if (!existing) return;
+            const kline: Kline = {
+                t: k.t,
+                o: parseFloat(k.o),
+                h: parseFloat(k.h),
+                l: parseFloat(k.l),
+                c: parseFloat(k.c),
+                v: parseFloat(k.v)
+            };
+            let updated = false;
+            if (interval === '1m') {
+                const lastKline = existing.klines1m[existing.klines1m.length - 1];
+                if (!lastKline || kline.t > lastKline.t) {
+                    existing.klines1m.push(kline);
+                    if (existing.klines1m.length > 300) existing.klines1m.shift();
+                    updated = true;
+                } else {
+                    existing.klines1m[existing.klines1m.length - 1] = kline;
+                    if (k.x) updated = true;
+                }
+            } else if (interval === '5m') {
+                const lastKline = existing.klines5m[existing.klines5m.length - 1];
+                if (!lastKline || kline.t > lastKline.t) {
+                    existing.klines5m.push(kline);
+                    if (existing.klines5m.length > 300) existing.klines5m.shift();
+                    updated = true;
+                } else {
+                    existing.klines5m[existing.klines5m.length - 1] = kline;
+                    if (k.x) updated = true;
+                }
+            } else if (interval === '15m') {
+                const lastKline = existing.klines15m[existing.klines15m.length - 1];
+                if (!lastKline || kline.t > lastKline.t) {
+                    existing.klines15m.push(kline);
+                    if (existing.klines15m.length > 300) existing.klines15m.shift();
+                    updated = true;
+                } else {
+                    existing.klines15m[existing.klines15m.length - 1] = kline;
+                    if (k.x) updated = true;
+                }
+            } else if (interval === '1h') {
+                const lastKline = existing.klines1h[existing.klines1h.length - 1];
+                if (!lastKline || kline.t > lastKline.t) {
+                    existing.klines1h.push(kline);
+                    if (existing.klines1h.length > 300) existing.klines1h.shift();
+                    updated = true;
+                } else {
+                    existing.klines1h[existing.klines1h.length - 1] = kline;
+                    if (k.x) updated = true;
+                }
+            }
+            if (updated) {
+                recalcIndicators(existing);
+                dirty = true;
+            }
+        };
+
+        const handleMarkPrice = (markPrices: any[]) => {
+            // Handle Mark Price (Funding Rate)
+            markPrices.forEach((mp: any) => {
+                const s = mp.s;
+                const funding = parseFloat(mp.r);
+                const existing = stateMap.get(s);
+                if (existing) {
+                    existing.funding = funding;
+                }
+            });
+        };
+
+        ws = new BinanceWS(handleTicker, handleKline, handleMarkPrice);
 
         ws.connect();
 

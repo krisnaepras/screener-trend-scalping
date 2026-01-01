@@ -115,7 +115,7 @@
 							<div class="flex flex-col items-center justify-center text-slate-500 gap-2">
 								<div
 									class="h-8 w-8 rounded-full border-2 border-slate-700 border-t-brand-500 animate-spin"
-								/>
+								></div>
 								<span class="text-xs font-mono uppercase tracking-widest animate-pulse"
 									>Scanning Market...</span
 								>
