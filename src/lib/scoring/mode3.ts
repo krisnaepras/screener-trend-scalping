@@ -15,10 +15,12 @@ export function scoreMode3(state: MarketState): number {
     if (!klines || klines.length < 2) return 0;
 
     const lastKline = klines[klines.length - 1];
-    const bodySize = Math.abs(lastKline.c - lastKline.o) / lastKline.o;
+    const bodySize = Math.abs(lastKline.c - lastKline.o); // absolute price movement
+    const atr = state.atr5m || (lastKline.c * 0.01); // Fallback to 1% price
 
-    // Big Body -> High Score
-    const breakoutScore = normalize(bodySize * 100, 0, 2); // > 2% candle is breakout
+    // Breakout Score: How big is the body relative to ATR?
+    // If Body > 1.5x ATR, it's a strong impulse
+    const breakoutScore = normalize(bodySize, 0, atr * 2.0);
 
     // 3. Volume Spike
     // Compare last volume to avg volume?

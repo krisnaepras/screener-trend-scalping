@@ -23,7 +23,9 @@ export interface MarketState {
 
     // Technicals
     rsi5m?: number;
-    rsi1m?: number; // New for Mode 2
+    rsi1m?: number;
+    adx1m?: number; // Trend Strength
+    atr5m?: number; // Volatility Context
 
     // MTF Indicators for Mode 2
     ema50_15m?: number; // Major Trend Anchor

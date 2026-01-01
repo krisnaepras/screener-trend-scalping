@@ -29,6 +29,14 @@ export function scoreMode2(state: MarketState): number {
     // but better check would be computed slope. For now, price position is the anchor)
 
     let trendScore = 0;
+    // ADX Filter: Trend must be strong (> 25) to trust the EMA alignment
+    const adx = state.adx1m || 30; // Default to 30 (strong) if missing to not block valid overlapping setups
+
+    // If ADX < 20, it's chopping, ignore trend signals
+    if (adx < 20) {
+        return 0;
+    }
+
     if (isBullish15m) {
         trendScore = 1; // Major trend UP
     } else if (isBearish15m) {
