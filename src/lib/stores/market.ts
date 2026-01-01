@@ -8,188 +8,25 @@ import { calculateScores } from '../scoring';
 import { Capacitor } from '@capacitor/core';
 
 function createMarketStore() {
-    const { subscribe, update, set } = writable(new Map<string, MarketState>());
+    const { subscribe, set } = writable(new Map<string, MarketState>());
+
+    // Local state to avoid Svelte overhead on every sub-update
+    const stateMap = new Map<string, MarketState>();
+    let dirty = false;
+
+    // Buffer updates loop to throttle UI
+    if (typeof setInterval !== 'undefined') {
+        setInterval(() => {
+            if (dirty) {
+                set(new Map(stateMap)); // Trigger Svelte Reactivity
+                dirty = false;
+            }
+        }, 500); // Update UI max 2x per second
+    }
 
     let ws: BinanceWS;
 
-    const init = () => {
-        ws = new BinanceWS(
-            (tickers) => {
-                update(map => {
-                    const newMap = new Map(map);
-                    let changed = false;
-
-                    tickers.forEach(t => {
-                        const s = t.s;
-                        if (!s.endsWith('USDT')) return; // Filter USDT only
-                        if (!newMap.has(s)) {
-                            // Initialize new symbol
-                            newMap.set(s, {
-                                symbol: s,
-                                price: parseFloat(t.c),
-                                change24h: parseFloat(t.P),
-                                volume: parseFloat(t.q),
-                                scoreMode1: 0,
-                                scoreMode2: 0,
-                                scoreMode3: 0,
-
-                                bias: 'NEUTRAL',
-                                klines5m: [],
-                                klines1m: [],
-                                klines15m: []
-                            });
-                            changed = true;
-                        } else {
-                            // Update existing
-                            const existing = newMap.get(s)!;
-                            existing.price = parseFloat(t.c);
-                            existing.change24h = parseFloat(t.P);
-                            existing.volume = parseFloat(t.q); // Volume accumulates 24h
-                        }
-                    });
-
-                    // Periodic Top N check to subscribe to klines
-                    checkAndSubscribeTopCandidates(newMap);
-
-                    return changed ? newMap : map;
-                });
-            },
-            (symbol, k, interval) => { // Added interval param to callback
-                // kline update
-                update(map => {
-                    const existing = map.get(symbol);
-                    if (!existing) return map;
-
-                    const kline: Kline = {
-                        t: k.t,
-                        o: parseFloat(k.o),
-                        h: parseFloat(k.h),
-                        l: parseFloat(k.l),
-                        c: parseFloat(k.c),
-                        v: parseFloat(k.v)
-                    };
-
-                    // Simple logic: if new kline period start, push. Else update last.
-                    // This is robust enough for 5m.
-                    if (interval === '1m') {
-                        const lastKline = existing.klines1m[existing.klines1m.length - 1];
-                        if (!lastKline || kline.t > lastKline.t) {
-                            existing.klines1m.push(kline);
-                            if (existing.klines1m.length > 300) existing.klines1m.shift();
-                            recalcIndicators(existing);
-                        } else {
-                            existing.klines1m[existing.klines1m.length - 1] = kline;
-                            if (k.x) recalcIndicators(existing);
-                        }
-                    } else if (interval === '5m') {
-                        const lastKline = existing.klines5m[existing.klines5m.length - 1];
-                        if (!lastKline || kline.t > lastKline.t) {
-                            existing.klines5m.push(kline);
-                            if (existing.klines5m.length > 300) existing.klines5m.shift();
-                            recalcIndicators(existing);
-                        } else {
-                            existing.klines5m[existing.klines5m.length - 1] = kline;
-                            if (k.x) recalcIndicators(existing);
-                        }
-                    } else if (interval === '15m') {
-                        const lastKline = existing.klines15m[existing.klines15m.length - 1];
-                        if (!lastKline || kline.t > lastKline.t) {
-                            existing.klines15m.push(kline);
-                            if (existing.klines15m.length > 300) existing.klines15m.shift();
-                            recalcIndicators(existing);
-                        } else {
-                            existing.klines15m[existing.klines15m.length - 1] = kline;
-                            if (k.x) recalcIndicators(existing);
-                        }
-                    }
-
-                    return new Map(map);
-                });
-            }
-        );
-
-        ws.connect();
-    };
-
-    let lastSubscriptionCheck = 0;
-    const checkAndSubscribeTopCandidates = (map: Map<string, MarketState>) => {
-        const now = Date.now();
-        if (now - lastSubscriptionCheck < 5000) return; // Run every 5s
-        lastSubscriptionCheck = now;
-
-        // Sort by Volume (q)
-        const sorted = Array.from(map.values())
-            .sort((a, b) => b.volume - a.volume)
-            .slice(0, 30); // Top 30 by volume
-
-        sorted.forEach(item => {
-            ws?.subscribeKline(item.symbol, '5m');
-            sorted.forEach(item => {
-                ws?.subscribeKline(item.symbol, '5m');
-                ws?.subscribeKline(item.symbol, '1m');
-                ws?.subscribeKline(item.symbol, '15m'); // Subscribe to 15m
-
-                // Backfill if empty
-                if (item.klines5m.length === 0) fetchHistory(item.symbol, '5m');
-                if (item.klines1m.length === 0) fetchHistory(item.symbol, '1m');
-                if (item.klines15m.length === 0) fetchHistory(item.symbol, '15m');
-            });
-        });
-    };
-
-    const fetchHistory = async (symbol: string, interval: '1m' | '5m' | '15m') => {
-        try {
-            // Use the proxy
-            let url = `/api/binance/klines?symbol=${symbol}&interval=${interval}&limit=100`;
-
-            // If Native (Android/iOS), fetch directly from Binance
-            // Requires CapacitorHttp plugin to be enabled to bypass CORS or use native fetch
-            if (Capacitor.isNativePlatform()) {
-                url = `https://screener-trend-scalping.vercel.app/api/binance/klines?symbol=${symbol}&interval=${interval}&limit=100`;
-            }
-
-            const res = await fetch(url);
-            const data = await res.json();
-
-            if (Array.isArray(data)) {
-                update(map => {
-                    const existing = map.get(symbol);
-                    if (!existing) return map;
-
-                    // Format: [t, o, h, l, c, v, ...]
-                    const klines: Kline[] = data.map((d: any) => ({
-                        t: d[0],
-                        o: parseFloat(d[1]),
-                        h: parseFloat(d[2]),
-                        l: parseFloat(d[3]),
-                        c: parseFloat(d[4]),
-                        v: parseFloat(d[5])
-                    }));
-
-                    if (interval === '1m') {
-                        if (existing.klines1m.length < 10) {
-                            existing.klines1m = klines;
-                            recalcIndicators(existing);
-                        }
-                    } else if (interval === '15m') {
-                        if (existing.klines15m.length < 10) {
-                            existing.klines15m = klines;
-                            recalcIndicators(existing);
-                        }
-                    } else {
-                        if (existing.klines5m.length < 10) {
-                            existing.klines5m = klines;
-                            recalcIndicators(existing);
-                        }
-                    }
-
-                    return new Map(map);
-                });
-            }
-        } catch (e) {
-            console.error('Failed to backfill', symbol, interval, e);
-        }
-    };
+    // --- Helper Functions (Hoisted/Defined before use) ---
 
     const recalcIndicators = (state: MarketState) => {
         const closes = state.klines5m.map(k => k.c);
@@ -198,7 +35,6 @@ function createMarketStore() {
         state.rsi5m = getLastRSI(closes, 14);
 
         // 1m Indicators
-        // 1m Indicators (EMA 21, 50, Vol MA)
         const closes1m = state.klines1m.map(k => k.c);
         const vols1m = state.klines1m.map(k => k.v);
 
@@ -233,6 +69,180 @@ function createMarketStore() {
         state.scoreMode3 = scoredState.scoreMode3;
         state.bias = scoredState.bias;
         state.note = scoredState.note;
+    };
+
+    const fetchHistory = async (symbol: string, interval: '1m' | '5m' | '15m') => {
+        try {
+            // Use the proxy
+            let url = `/api/binance/klines?symbol=${symbol}&interval=${interval}&limit=100`;
+
+            // If Native (Android/iOS), fetch directly from Binance
+            if (Capacitor.isNativePlatform()) {
+                url = `https://screener-trend-scalping.vercel.app/api/binance/klines?symbol=${symbol}&interval=${interval}&limit=100`;
+            }
+
+            const res = await fetch(url);
+            const data = await res.json();
+
+            if (Array.isArray(data)) {
+                // Check if symbol exists in stateMap
+                const existing = stateMap.get(symbol);
+                if (!existing) return;
+
+                // Format: [t, o, h, l, c, v, ...]
+                const klines: Kline[] = data.map((d: any) => ({
+                    t: d[0],
+                    o: parseFloat(d[1]),
+                    h: parseFloat(d[2]),
+                    l: parseFloat(d[3]),
+                    c: parseFloat(d[4]),
+                    v: parseFloat(d[5])
+                }));
+
+                if (interval === '1m') {
+                    if (existing.klines1m.length < 10) {
+                        existing.klines1m = klines;
+                        recalcIndicators(existing);
+                    }
+                } else if (interval === '15m') {
+                    if (existing.klines15m.length < 10) {
+                        existing.klines15m = klines;
+                        recalcIndicators(existing);
+                    }
+                } else {
+                    if (existing.klines5m.length < 10) {
+                        existing.klines5m = klines;
+                        recalcIndicators(existing);
+                    }
+                }
+
+                dirty = true;
+            }
+        } catch (e) {
+            console.error('Failed to backfill', symbol, interval, e);
+        }
+    };
+
+    let lastSubscriptionCheck = 0;
+    const checkAndSubscribeTopCandidates = (map: Map<string, MarketState>) => {
+        const now = Date.now();
+        if (now - lastSubscriptionCheck < 5000) return; // Run every 5s
+        lastSubscriptionCheck = now;
+
+        // Sort by Volume (q)
+        // Use Array.from(map.values()) is okay for 200 items, but ensure we don't block
+        const sorted = Array.from(map.values())
+            .sort((a, b) => b.volume - a.volume)
+            .slice(0, 30); // Top 30 by volume
+
+        sorted.forEach(item => {
+            ws?.subscribeKline(item.symbol, '5m');
+            ws?.subscribeKline(item.symbol, '1m');
+            ws?.subscribeKline(item.symbol, '15m');
+
+            // Backfill if empty
+            if (item.klines5m.length === 0) fetchHistory(item.symbol, '5m');
+            if (item.klines1m.length === 0) fetchHistory(item.symbol, '1m');
+            if (item.klines15m.length === 0) fetchHistory(item.symbol, '15m');
+        });
+    };
+
+    // --- Init ---
+
+    const init = () => {
+        ws = new BinanceWS(
+            (tickers) => {
+                tickers.forEach(t => {
+                    const s = t.s;
+                    if (!s.endsWith('USDT')) return; // Filter USDT only
+
+                    if (!stateMap.has(s)) {
+                        // Initialize new symbol
+                        stateMap.set(s, {
+                            symbol: s,
+                            price: parseFloat(t.c),
+                            change24h: parseFloat(t.P),
+                            volume: parseFloat(t.q),
+                            scoreMode1: 0,
+                            scoreMode2: 0,
+                            scoreMode3: 0,
+
+                            bias: 'NEUTRAL',
+                            klines5m: [],
+                            klines1m: [],
+                            klines15m: []
+                        });
+                        dirty = true;
+                    } else {
+                        // Update existing
+                        const existing = stateMap.get(s)!;
+                        existing.price = parseFloat(t.c);
+                        existing.change24h = parseFloat(t.P);
+                        existing.volume = parseFloat(t.q); // Volume accumulates 24h
+                        // dirty = true; // Optimization: Don't trigger rerender on just price tick unless needed
+                        // Actually we need to update price on UI. But maybe 500ms throttle covers it.
+                        dirty = true;
+                    }
+                });
+
+                // Periodic Top N check to subscribe to klines
+                checkAndSubscribeTopCandidates(stateMap);
+            },
+            (symbol, k, interval) => {
+                const existing = stateMap.get(symbol);
+                if (!existing) return;
+
+                const kline: Kline = {
+                    t: k.t,
+                    o: parseFloat(k.o),
+                    h: parseFloat(k.h),
+                    l: parseFloat(k.l),
+                    c: parseFloat(k.c),
+                    v: parseFloat(k.v)
+                };
+
+                let updated = false;
+
+                if (interval === '1m') {
+                    const lastKline = existing.klines1m[existing.klines1m.length - 1];
+                    if (!lastKline || kline.t > lastKline.t) {
+                        existing.klines1m.push(kline);
+                        if (existing.klines1m.length > 300) existing.klines1m.shift();
+                        updated = true;
+                    } else {
+                        existing.klines1m[existing.klines1m.length - 1] = kline;
+                        if (k.x) updated = true;
+                    }
+                } else if (interval === '5m') {
+                    const lastKline = existing.klines5m[existing.klines5m.length - 1];
+                    if (!lastKline || kline.t > lastKline.t) {
+                        existing.klines5m.push(kline);
+                        if (existing.klines5m.length > 300) existing.klines5m.shift();
+                        updated = true;
+                    } else {
+                        existing.klines5m[existing.klines5m.length - 1] = kline;
+                        if (k.x) updated = true;
+                    }
+                } else if (interval === '15m') {
+                    const lastKline = existing.klines15m[existing.klines15m.length - 1];
+                    if (!lastKline || kline.t > lastKline.t) {
+                        existing.klines15m.push(kline);
+                        if (existing.klines15m.length > 300) existing.klines15m.shift();
+                        updated = true;
+                    } else {
+                        existing.klines15m[existing.klines15m.length - 1] = kline;
+                        if (k.x) updated = true;
+                    }
+                }
+
+                if (updated) {
+                    recalcIndicators(existing);
+                    dirty = true;
+                }
+            }
+        );
+
+        ws.connect();
     };
 
     const subscribeToSymbol = (symbol: string) => {
