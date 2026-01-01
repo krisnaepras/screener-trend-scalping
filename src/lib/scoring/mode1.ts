@@ -17,36 +17,31 @@ export function scoreMode1(state: MarketState): number {
     // Normalize pump: 0 to Threshold*2
     const pumpScore = normalize(pump5m, 0, config.PUMP_5M_THRESHOLD * 2);
 
-    // 2. Sideways / Tightness (Low BB Width)
-    // Assume bbWidth is pre-calculated or calculate here.
-    // Ideally pre-calc in MarketStore update loop to save perf.
-    const bbWidth = state.bbWidth || 1; // Default to 1 (wide) if missing
-
-    // Lower width is better -> Invert
-    // If width < TIGHT, score is high.
-    // If width > TIGHT * 3, score is 0.
-    const tightnessScore = 1 - normalize(bbWidth, config.BB_WIDTH_TIGHT, config.BB_WIDTH_TIGHT * 3);
-
-    // 3. RSI Exhaustion
-    // High RSI -> Ready for short
+    // 2. Exhaustion Context (RSI Overbought)
+    // Mode 1 focuses on Impulse + Reversal (Short)
+    // We REMOVE the BB Tightness check here to avoid overlap with Mode 3 (Squeeze)
+    // Instead, we look for extended RSI
     const rsi = state.rsi5m || 50;
-    const rsiScore = normalize(rsi, 50, 100);
+    const rsiScore = normalize(rsi, 60, 85); // > 85 is extreme
 
     // 4. Positioning (Funding/LSR)
     // High Funding -> Longs paying shorts -> Bearish signal (often)
     // High LSR -> Retail long -> Bearish
+    // High Funding (> 0.01% baseline) -> Crowded Longs -> Bearish
     const funding = state.funding || 0;
-    const lsr = state.lsr || 1;
 
-    const fundingScore = normalize(funding, 0, 0.05); // 0.05% is high
-    const lsrScore = normalize(lsr, 1, 4); // LSR > 4 is extreme long
+    // If Funding is high (> 0.02%?), score boosts
+    const fundingScore = normalize(funding, 0.01, 0.05);
+
+    // LSR: If Retail is excessively Long (> 2), smart money might dump
+    const lsr = state.lsr || 1;
+    const lsrScore = normalize(lsr, 1.5, 4.0);
 
     const totalScore = weightedSum([
-        { val: pumpScore, weight: config.WEIGHTS.PUMP },
-        { val: tightnessScore, weight: config.WEIGHTS.TIGHTNESS },
-        { val: rsiScore, weight: config.WEIGHTS.RSI },
-        { val: fundingScore, weight: config.WEIGHTS.FUNDING },
-        { val: lsrScore, weight: config.WEIGHTS.LSR }
+        { val: pumpScore, weight: 0.4 }, // Impulse is key
+        { val: rsiScore, weight: 0.3 },  // Exhaustion
+        { val: fundingScore, weight: 0.2 }, // Crowding
+        { val: lsrScore, weight: 0.1 }
     ]);
 
     return Math.round(totalScore * 100);

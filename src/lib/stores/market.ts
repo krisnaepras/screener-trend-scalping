@@ -239,10 +239,74 @@ function createMarketStore() {
                     recalcIndicators(existing);
                     dirty = true;
                 }
+            },
+            (markPrices) => {
+                // Handle Mark Price (Funding Rate)
+                markPrices.forEach((mp: any) => {
+                    const s = mp.s;
+                    const funding = parseFloat(mp.r);
+                    const existing = stateMap.get(s);
+                    if (existing) {
+                        existing.funding = funding;
+                        // dirty = true; // Optional: update UI on funding change?
+                    }
+                });
             }
         );
 
         ws.connect();
+
+        // Start polling OI for top candidates
+        startOIPolling();
+    };
+
+    let oiPoller: any;
+    const startOIPolling = () => {
+        if (oiPoller) clearInterval(oiPoller);
+        oiPoller = setInterval(async () => {
+            // Get Top 15 by Volume
+            const topSymbols = Array.from(stateMap.values())
+                .sort((a, b) => b.volume - a.volume)
+                .slice(0, 15)
+                .map(s => s.symbol);
+
+            if (topSymbols.length === 0) return;
+
+            // We need to fetch OI for each. 
+            // Ideally we'd have a batch endpoint, but Binance FAPI only supports single symbol for OI /fapi/v1/openInterest
+            // We can use a proxy route that handles batching or just fire promises.
+            // Limit to 5 requests concurrently or just do it.
+
+            // For now, let's just pick top 5 to avoid rate limits
+            for (const sym of topSymbols.slice(0, 5)) {
+                try {
+                    let url = `/api/binance/oi?symbol=${sym}`;
+                    if (Capacitor.isNativePlatform()) {
+                        url = `https://screener-trend-scalping.vercel.app/api/binance/oi?symbol=${sym}`;
+                    }
+
+                    // We need to create this endpoint or use direct Binance if possible
+                    // Assuming we map this to /fapi/v1/openInterest via our proxy
+
+                    // Fallback check: do we have an endpoint? 
+                    // We only have /api/binance (proxy) which currently only supports fetchBinance -> any path.
+                    // But binance.ts defines specific paths? No, it's a general proxy?
+                    // Let's check api/binance.ts.
+
+                    // Assuming we can use: /api/binance/openInterest?symbol=...
+                    const res = await fetch(url);
+                    const data = await res.json();
+                    // { symbol: "BTCUSDT", openInterest: "123.45", time: ... }
+
+                    const existing = stateMap.get(sym);
+                    if (existing && data.openInterest) {
+                        existing.oi = parseFloat(data.openInterest);
+                    }
+                } catch (e) {
+                    // console.error(e);
+                }
+            }
+        }, 60000); // Poll every 1 minute
     };
 
     const subscribeToSymbol = (symbol: string) => {

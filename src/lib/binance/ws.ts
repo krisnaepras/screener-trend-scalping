@@ -2,6 +2,7 @@ import { type Ticker } from '../types';
 
 type TickerCallback = (tickers: Ticker[]) => void;
 type KlineCallback = (symbol: string, kline: any, interval: string) => void;
+type MarkPriceCallback = (data: any[]) => void;
 
 export class BinanceWS {
     private ws: WebSocket | null = null;
@@ -12,12 +13,14 @@ export class BinanceWS {
 
     constructor(
         private onTicker: TickerCallback,
-        private onKline: KlineCallback
+        private onKline: KlineCallback,
+        private onMarkPrice?: MarkPriceCallback
     ) { }
 
     connect() {
         // !ticker@arr gives us P (percent change) which we need
-        const streams = ['!ticker@arr', ...this.subscriptions];
+        // !markPrice@arr@1s gives us r (funding rate)
+        const streams = ['!ticker@arr', '!markPrice@arr@1s', ...this.subscriptions];
         // Note: For combined streams, use /stream?streams=...
         const url = `wss://fstream.binance.com/stream?streams=${streams.join('/')}`;
 
@@ -36,6 +39,8 @@ export class BinanceWS {
                 // Handle combined stream payload: { stream: '...', data: ... }
                 if (data.stream === '!ticker@arr') {
                     this.onTicker(data.data);
+                } else if (data.stream === '!markPrice@arr@1s') {
+                    this.onMarkPrice?.(data.data);
                 } else if (data.stream && data.stream.includes('@kline')) {
                     // stream: btcusdt@kline_5m
                     const parts = data.stream.split('@');

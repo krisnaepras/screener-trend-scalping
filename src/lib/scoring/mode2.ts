@@ -37,10 +37,22 @@ export function scoreMode2(state: MarketState): number {
         return 0;
     }
 
-    if (isBullish15m) {
-        trendScore = 1; // Major trend UP
-    } else if (isBearish15m) {
-        trendScore = 1; // Major trend DOWN
+    // MTF Anchor: Check 15m Trend Alignment
+    // Price must be on the correct side of 15m EMA50
+    const mtfAlignedBull = currentPrice > ema50_15m;
+    const mtfAlignedBear = currentPrice < ema50_15m;
+
+    // Strict Rule: If not aligned with 15m, score is 0 (or severely penalized)
+    if (!mtfAlignedBull && isBullish15m) { // Wait, isBullish15m variable name is confusing from previous logic
+        // Let's redefine logic clearly
+    }
+
+    if (ema21 > ema50 && mtfAlignedBull) {
+        trendScore = 1; // Bullish Trend + MTF confirmation
+    } else if (ema21 < ema50 && mtfAlignedBear) {
+        trendScore = 1; // Bearish Trend + MTF Confirmation
+    } else {
+        return 0; // Counter-trend or messy
     }
 
     // --- 2. Pullback Structure (30%) ---
