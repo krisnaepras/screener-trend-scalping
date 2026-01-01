@@ -10,6 +10,13 @@
 	let searchQuery = '';
 
 	$: filteredData = data.filter((item) => item.symbol.includes(searchQuery.toUpperCase()));
+
+	function formatPrice(price: number) {
+		if (price < 0.01) return price.toFixed(8);
+		if (price < 1) return price.toFixed(6);
+		if (price < 10) return price.toFixed(4);
+		return price.toFixed(2);
+	}
 </script>
 
 <div
@@ -81,7 +88,7 @@
 						<!-- Price -->
 						<td class="p-3 text-right whitespace-nowrap">
 							<div class="font-mono text-slate-300">
-								{item.price.toFixed(item.price < 1 ? 4 : 2)}
+								{formatPrice(item.price)}
 							</div>
 							<div
 								class="text-xs font-mono font-medium mt-0.5
