@@ -22,7 +22,9 @@ export const SCORING_CONFIG = {
             TREND: 0.5,
             PULLBACK: 0.3,
             CONFIRMATION: 0.2
-        }
+        },
+        PULLBACK_LOWER_TOLERANCE: 0.998,
+        PULLBACK_UPPER_TOLERANCE: 1.002
     },
     // Mode 3: Squeeze -> Breakout
     MODE3: {

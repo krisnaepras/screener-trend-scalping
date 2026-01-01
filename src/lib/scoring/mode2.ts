@@ -15,11 +15,15 @@ export function scoreMode2(state: MarketState): number {
     // Long: Close 15m > EMA 50 (15m)
     // Short: Close 15m < EMA 50 (15m)
     const ema50_15m = state.ema50_15m;
+    const ema21 = state.ema21_1m!;
+    const ema50 = state.ema50_1m!;
     // We approximate 15m close with current price for real-time check
     const currentPrice = state.price;
 
-    const isBullish15m = currentPrice > ema50_15m;
-    const isBearish15m = currentPrice < ema50_15m;
+    // Trend Alignment: 1m Trend must agree with 15m Trend
+    // Bullish: 15m Price > EMA50 AND 1m EMA21 > EMA50
+    const isBullish15m = currentPrice > ema50_15m && ema21 > ema50;
+    const isBearish15m = currentPrice < ema50_15m && ema21 < ema50;
 
     // Check slope of EMA 15m (simplified: current price relative to EMA implies slope if sustained, 
     // but better check would be computed slope. For now, price position is the anchor)
@@ -33,10 +37,9 @@ export function scoreMode2(state: MarketState): number {
 
     // --- 2. Pullback Structure (30%) ---
     // We look for 1m price retracing to the "Value Zone" between EMA 21 and EMA 50
-    const ema21 = state.ema21_1m!;
-    const ema50 = state.ema50_1m!;
-    const low = klines1m[klines1m.length - 1].l;
-    const high = klines1m[klines1m.length - 1].h;
+    const lastKline = klines1m[klines1m.length - 1];
+    const low = lastKline.l;
+    const high = lastKline.h;
 
     let pullbackScore = 0;
     if (isBullish15m) {
@@ -49,17 +52,17 @@ export function scoreMode2(state: MarketState): number {
 
         // Perfect: Low touches EMA 21 or goes slightly below
         // If Low > EMA 21, it's strong momentum, not pullback yet (unless tight flag)
-        if (low <= ema21 && low >= ema50 * 0.998) {
+        if (low <= ema21 && low >= ema50 * config.PULLBACK_LOWER_TOLERANCE) {
             pullbackScore = 1; // Bullseye
-        } else if (low > ema21 && low < ema21 * 1.002) {
+        } else if (low > ema21 && low < ema21 * config.PULLBACK_UPPER_TOLERANCE) {
             pullbackScore = 0.8; // Near miss / very shallow
         }
     } else {
         // Short Setup: Price rallies into EMA 21-50 zone
         // Check if High touched zone
-        if (high >= ema21 && high <= ema50 * 1.002) {
+        if (high >= ema21 && high <= ema50 * config.PULLBACK_UPPER_TOLERANCE) {
             pullbackScore = 1;
-        } else if (high < ema21 && high > ema21 * 0.998) {
+        } else if (high < ema21 && high > ema21 * config.PULLBACK_LOWER_TOLERANCE) {
             pullbackScore = 0.8;
         }
     }
@@ -67,25 +70,30 @@ export function scoreMode2(state: MarketState): number {
     // --- 3. Trigger & Validation (20%) ---
     // 1. Reclaim: Close back above EMA 21 (for Long)
     // 2. Volume: 1m Volume > MA(20) Volume
+    // 3. Candle Color: Must be same direction as trend (Bullish=Green, Bearish=Red)
     let triggerScore = 0;
-    const close = klines1m[klines1m.length - 1].c;
-    const vol = klines1m[klines1m.length - 1].v;
+
+    const close = lastKline.c;
+    const open = lastKline.o;
+    const vol = lastKline.v;
     const volMA = state.volumeMA20_1m || vol; // Fallback
 
     const volOk = vol > volMA;
 
     if (isBullish15m) {
         const reclaimed = close > ema21;
-        if (reclaimed && volOk) {
+        const isGreen = close > open;
+        if (reclaimed && volOk && isGreen) {
             triggerScore = 1;
-        } else if (reclaimed) {
+        } else if (reclaimed && isGreen) {
             triggerScore = 0.5; // Valid close, weak volume
         }
     } else {
         const reclaimed = close < ema21;
-        if (reclaimed && volOk) {
+        const isRed = close < open;
+        if (reclaimed && volOk && isRed) {
             triggerScore = 1;
-        } else if (reclaimed) {
+        } else if (reclaimed && isRed) {
             triggerScore = 0.5;
         }
     }
